@@ -45,7 +45,13 @@ void dumpbits32(u32 v, std::string msg) {
 
 const size_t SIMD_READ_WIDTH = 16;
 
-#define LOOSE
+//#define LOOSE
+
+#ifdef LOOSE
+const bool IS_LOOSE_FIT = true;
+#else
+const bool IS_LOOSE_FIT = false;
+#endif
 inline void set_byte_at_offset(m256 & in, u32 offset, u8 content) {
     union {
         m256 sse;
@@ -86,41 +92,38 @@ struct GPR_SMH_PART {
     u64 hi;
     u64 low;
 
-    u64 doit(u64 m) {
-#ifdef LOOSE
+    u64 doit(u64 m, bool loose_fit) {
+        if (loose_fit) {
 #ifdef DEBUG
-        dumpbits(m, "input to gpr-smh");
-        dumpbits(hi, "hi");
-        dumpbits(low, "low");
-        u64 after_add = m + low;
-        dumpbits(after_add, "after_add");
-        u64 ret = after_add & hi;
-        dumpbits(ret, "ret");
-        std::cout << "\n";
-        return ret;
+            dumpbits(m, "input to gpr-smh");
+            dumpbits(hi, "hi");
+            dumpbits(low, "low");
+            u64 after_add = m + low;
+            dumpbits(after_add, "after_add");
+            u64 ret = after_add & hi;
+            dumpbits(ret, "ret");
+            std::cout << "\n";
+            return ret;
 #else
-        return (m + low) & hi;
+            return (m + low) & hi;
 #endif
-
-#else
-
+        } else {
 #ifdef DEBUG
-        dumpbits(m, "input to gpr-smh");
-        dumpbits(hi, "hi");
-        dumpbits(low, "low");
-        u64 holes = m & ~hi;
-        dumpbits(holes, "holes");
-        u64 after_add = holes + low;
-        dumpbits(after_add, "after_add");
-        u64 ret = after_add & (m & hi);
-        dumpbits(ret, "ret");
-        std::cout << "\n";
-        return ret;
+            dumpbits(m, "input to gpr-smh");
+            dumpbits(hi, "hi");
+            dumpbits(low, "low");
+            u64 holes = m & ~hi;
+            dumpbits(holes, "holes");
+            u64 after_add = holes + low;
+            dumpbits(after_add, "after_add");
+            u64 ret = after_add & (m & hi);
+            dumpbits(ret, "ret");
+            std::cout << "\n";
+            return ret;
 #else
-        return ((m & ~hi) + low) & (m & hi);
+            return ((m & ~hi) + low) & (m & hi);
 #endif
-
-#endif
+        }
     }
 };
 
@@ -167,6 +170,7 @@ inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
 
         size_t l = str.size();
         if (l > 16) {
+            std::cerr << "String too long\n";
             return false;
         } 
 
@@ -179,7 +183,8 @@ inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
         }
 
         // bail out if we don't have room for the string
-        if ((end_loc/64 > n_gpr_parts) || (end_loc/32 > n_simd_parts)) {
+        if ((end_loc/64 >= n_gpr_parts) || (end_loc/32 >= n_simd_parts)) {
+            std::cerr <<  "Too many byte predicates for model\n";
             return false;
         }
 
@@ -205,6 +210,7 @@ inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
     return true;
 }
 
+template<bool LOOSE_FIT>
 class SMH32 {
     SIMD_SMH_PART s[1];
     GPR_SMH_PART g[1];
@@ -212,20 +218,21 @@ class SMH32 {
 public:
     SMH32(std::vector<std::string> & strings,
           std::vector<u32> & orig_ids) {
-        build_smh(1, s, 1, g, 65, ids, strings, orig_ids, PREFIX, true);
+        build_smh(1, s, 1, g, 65, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
     }
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
         // TODO: find better intrinsic - there's a memory form of this instruction
         m256 d = _mm256_broadcastsi128_si256(*(const m128 *)buf);
         u32 m = s[0].doit(d); 
-        u32 m_tmp = g[0].doit(m);
+        u32 m_tmp = g[0].doit(m, LOOSE_FIT);
         u32 cnt = _lzcnt_u64(m_tmp); // TODO: figure out why we get a useless op after this
         return ids[cnt];
     }
 
-    std::string name() { return "SMH32"; }
+    std::string name() { return LOOSE_FIT ? "SMH32-loose" : "SMH32"; }
 };
 
+template<bool LOOSE_FIT>
 class SMH64 {
     SIMD_SMH_PART s[2];
     GPR_SMH_PART g[1];
@@ -233,7 +240,7 @@ class SMH64 {
 public:
     SMH64(std::vector<std::string> & strings,
           std::vector<u32> & orig_ids) {
-        build_smh(2, s, 1, g, 65, ids, strings, orig_ids, PREFIX, true);
+        build_smh(2, s, 1, g, 65, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
     }
 
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
@@ -242,14 +249,15 @@ public:
         u64 m0 = s[0].doit(d); 
         u64 m1 = s[1].doit(d); 
         u64 m = m0 | (m1 << 32);
-        u64 m_tmp = g[0].doit(m);
+        u64 m_tmp = g[0].doit(m, LOOSE_FIT);
         u32 cnt = _lzcnt_u64(m_tmp); 
         return ids[cnt];
     }
 
-    std::string name() { return "SMH64"; }
+    std::string name() { return LOOSE_FIT ? "SMH64-loose" : "SMH64"; }
 };
 
+template<bool LOOSE_FIT>
 class SMH128 {
     SIMD_SMH_PART s[4];
     GPR_SMH_PART g[2];
@@ -257,7 +265,7 @@ class SMH128 {
 public:
     SMH128(std::vector<std::string> & strings,
            std::vector<u32> & orig_ids) {
-        build_smh(4, s, 2, g, 129, ids, strings, orig_ids, PREFIX, true);
+        build_smh(4, s, 2, g, 129, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
     }
 
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
@@ -269,8 +277,8 @@ public:
         u64 m3 = s[3].doit(d); 
         u64 m_lo = m0 | (m1 << 32);
         u64 m_hi = m2 | (m3 << 32);
-        u64 m_tmp_lo = g[0].doit(m_lo);
-        u64 m_tmp_hi = g[1].doit(m_hi);
+        u64 m_tmp_lo = g[0].doit(m_lo, LOOSE_FIT);
+        u64 m_tmp_hi = g[1].doit(m_hi, LOOSE_FIT);
         u32 cnt_lo = _lzcnt_u64(m_tmp_lo); 
         u32 cnt_hi = _lzcnt_u64(m_tmp_hi);
         u32 cnt = m_tmp_hi != 0 ? cnt_hi : (cnt_lo + 64);
@@ -285,7 +293,7 @@ public:
         return ids[cnt];
     }
 
-    std::string name() { return "SMH128"; }
+    std::string name() { return LOOSE_FIT ? "SMH128-loose" : "SMH128"; }
 };
 
 #endif

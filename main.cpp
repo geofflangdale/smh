@@ -23,17 +23,26 @@ void match_multiple_smh(T & smh, std::vector<u8 *> & buffers, std::vector<size_t
 #ifndef NO_UNROLL
         for (; i+7 < buffers.size(); i+=8) {
             results[i+0] = smh.match(buffers[i+0], lengths[i+0]);
+//            _mm_lfence();
             results[i+1] = smh.match(buffers[i+1], lengths[i+1]);
+//            _mm_lfence();
             results[i+2] = smh.match(buffers[i+2], lengths[i+2]);
+//            _mm_lfence();
             results[i+3] = smh.match(buffers[i+3], lengths[i+3]);
+//            _mm_lfence();
             results[i+4] = smh.match(buffers[i+4], lengths[i+4]);
+//            _mm_lfence();
             results[i+5] = smh.match(buffers[i+5], lengths[i+5]);
+//            _mm_lfence();
             results[i+6] = smh.match(buffers[i+6], lengths[i+6]);
+//            _mm_lfence();
             results[i+7] = smh.match(buffers[i+7], lengths[i+7]);
+//            _mm_lfence();
         }
 #endif
         for (; i < buffers.size(); ++i) {
             results[i] = smh.match(buffers[i], lengths[i]);
+//            _mm_lfence();
         }
 }
 
@@ -65,7 +74,7 @@ void demo(T & smh) {
         memset(big_buf, 0, 16);
         memcpy(big_buf, (void *)strs[i], strlen(strs[i]));
         u32 res = smh.match(big_buf, CHUNK_SIZE);
-        cout << "Result: " << res << "\n\n";
+        cout << "Result: " << res << "\n";
     }
 }
 
@@ -96,7 +105,6 @@ never_inline void performance_test(T & smh) {
     u64 buffers_matched = NUM_CHUNKS * REPEATS;
     cout << "SMH variant: " << smh.name() << "\n"
          << "Matched " << buffers_matched << " buffers in " << secs << " seconds\n"
-         << "Buffers/second: " << buffers_matched/secs  << "\n"
          << "Nanoseconds to match a single buffer (throughput): " << (secs*1000000000.0)/buffers_matched << "\n";
 }
 
@@ -115,13 +123,21 @@ int main(UNUSED int argc, UNUSED char * argv[]) {
     ids.push_back(100);
     
 #ifndef TRENTALIKE_DEMO
-    SMH32 smh2(strings, ids); 
+    SMH32<true> smh2(strings, ids); 
     demo(smh2);
     performance_test(smh2);
 
-    SMH64 smh3(strings, ids); 
+    SMH32<false> smh2a(strings, ids); 
+    demo(smh2a);
+    performance_test(smh2a);
+
+    SMH64<true> smh3(strings, ids); 
     demo(smh3);
     performance_test(smh3);
+
+    SMH64<false> smh3a(strings, ids); 
+    demo(smh3a);
+    performance_test(smh3a);
 
     strings.push_back(string("this is long"));
     ids.push_back(120);
@@ -132,9 +148,13 @@ int main(UNUSED int argc, UNUSED char * argv[]) {
     strings.push_back(string("bored doing thi"));
     ids.push_back(180); 
 
-    SMH128 smh(strings, ids); 
+    SMH128<true> smh(strings, ids); 
     demo(smh);
     performance_test(smh);
+
+    SMH128<false> smha(strings, ids); 
+    demo(smha);
+    performance_test(smha);
 #else
     vector<string> tstr; 
     vector<u32> tids;
@@ -142,7 +162,7 @@ int main(UNUSED int argc, UNUSED char * argv[]) {
         tstr.push_back(string(trent_strings[i]));
         tids.push_back(i);
     }
-    SMH128 smh4(tstr, tids); 
+    SMH128<true> smh4(tstr, tids); 
     demo(smh4);
     performance_test(smh4);
 #endif
