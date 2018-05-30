@@ -15,6 +15,13 @@ const int REPEATS = 500000;
 
 using namespace std;
 
+//#define GRATUITOUS_LFENCE_EVERYWHERE
+
+#ifdef GRATUITOUS_LFENCE_EVERYWHERE
+#define LFENCE _mm_lfence();
+#else
+#define LFENCE ;
+#endif
 
 template <typename T>
 void match_multiple_smh(T & smh, std::vector<u8 *> & buffers, std::vector<size_t> & lengths,
@@ -22,26 +29,18 @@ void match_multiple_smh(T & smh, std::vector<u8 *> & buffers, std::vector<size_t
         u32 i = 0;
 #ifndef NO_UNROLL
         for (; i+7 < buffers.size(); i+=8) {
-            results[i+0] = smh.match(buffers[i+0], lengths[i+0]);
-//            _mm_lfence();
-            results[i+1] = smh.match(buffers[i+1], lengths[i+1]);
-//            _mm_lfence();
-            results[i+2] = smh.match(buffers[i+2], lengths[i+2]);
-//            _mm_lfence();
-            results[i+3] = smh.match(buffers[i+3], lengths[i+3]);
-//            _mm_lfence();
-            results[i+4] = smh.match(buffers[i+4], lengths[i+4]);
-//            _mm_lfence();
-            results[i+5] = smh.match(buffers[i+5], lengths[i+5]);
-//            _mm_lfence();
-            results[i+6] = smh.match(buffers[i+6], lengths[i+6]);
-//            _mm_lfence();
-            results[i+7] = smh.match(buffers[i+7], lengths[i+7]);
-//            _mm_lfence();
+            results[i+0] = smh.match(buffers[i+0], lengths[i+0]); LFENCE
+            results[i+1] = smh.match(buffers[i+1], lengths[i+1]); LFENCE
+            results[i+2] = smh.match(buffers[i+2], lengths[i+2]); LFENCE
+            results[i+3] = smh.match(buffers[i+3], lengths[i+3]); LFENCE
+            results[i+4] = smh.match(buffers[i+4], lengths[i+4]); LFENCE
+            results[i+5] = smh.match(buffers[i+5], lengths[i+5]); LFENCE
+            results[i+6] = smh.match(buffers[i+6], lengths[i+6]); LFENCE
+            results[i+7] = smh.match(buffers[i+7], lengths[i+7]); LFENCE
         }
 #endif
         for (; i < buffers.size(); ++i) {
-            results[i] = smh.match(buffers[i], lengths[i]);
+            results[i] = smh.match(buffers[i], lengths[i]); LFENCE
 //            _mm_lfence();
         }
 }
