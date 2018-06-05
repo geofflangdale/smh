@@ -129,21 +129,22 @@ struct GPR_SMH_PART {
 
 typedef enum { PREFIX, SUFFIX } SMH_MODE;
 
+typedef std::vector<std::pair<std::string, u32>> SMH_WORKLOAD;
+
 inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
                       size_t n_gpr_parts,  GPR_SMH_PART * g, 
-                      size_t num_ids, u32 * ids,
-                      std::vector<std::string> & strings,
-                      std::vector<u32> & orig_ids,
+                      size_t num_id_slots, u32 * ids,
+                      SMH_WORKLOAD & workload,
                       SMH_MODE mode, 
                       bool loose) {
 
     assert(mode == PREFIX);
-    assert(num_ids == n_gpr_parts*64 + 1);
+    assert(num_id_slots == n_gpr_parts*64 + 1);
     u32 loc = 0; // index corresponding to bytes in SIMD_SMH_PART and bits in GPR_SMH_PART
                  // We chunk SIMD_SMH_PART by 32 (for AVX2) and GPR_SMH_PART by 64 for 64-bit GPR
                  // thus all the loc/64 loc%64 loc/32 loc%32 nonsense.
 
-    for (u32 i = 0; i < num_ids; i++) {
+    for (u32 i = 0; i < num_id_slots; i++) {
         ids[i] = 0;
     }
     for (u32 i = 0; i < n_simd_parts; i++) {
@@ -162,11 +163,10 @@ inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
     // assign strings to locations. Walk strings in reverse order as 
     // we want earlier strings to take precedence (useful later for overlapping
     // string optimization)
-    assert(strings.size() == orig_ids.size());
-    auto rii = orig_ids.rbegin();
-    for (auto rsi = strings.rbegin(), rse = strings.rend(); rsi != rse; ++rsi) {
-        const std::string str = *rsi;
-        u32 id = *rii++;
+    for (auto rsi = workload.rbegin(), rse = workload.rend(); rsi != rse; ++rsi) {
+        auto p = *rsi;
+        const std::string & str = p.first;
+        u32 id = p.second;
 
         size_t l = str.size();
         if (l > 16) {
@@ -205,7 +205,7 @@ inline bool build_smh(size_t n_simd_parts, SIMD_SMH_PART * s,
         // empty slot for when we get a zero result (no match). So num_ids already has a +1,
         // so we need to subtract 1 from that for the zero-result and 1 from that to handle the
         // fact that the position of end_loc itself isn't part of the trailing zeros
-        ids[(num_ids-2) - end_loc] = id;
+        ids[(num_id_slots-2) - end_loc] = id;
     }
     return true;
 }
@@ -216,10 +216,10 @@ class SMH32 {
     GPR_SMH_PART g[1];
     u32 ids[65]; // padded, for regularization
 public:
-    SMH32(std::vector<std::string> & strings,
-          std::vector<u32> & orig_ids) {
-        build_smh(1, s, 1, g, 65, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
+    SMH32(SMH_WORKLOAD & workload) {
+        build_smh(1, s, 1, g, 65, ids, workload, PREFIX, LOOSE_FIT);
     }
+
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
         // TODO: find better intrinsic - there's a memory form of this instruction
         m256 d = _mm256_broadcastsi128_si256(*(const m128 *)buf);
@@ -238,9 +238,8 @@ class SMH64 {
     GPR_SMH_PART g[1];
     u32 ids[65];
 public:
-    SMH64(std::vector<std::string> & strings,
-          std::vector<u32> & orig_ids) {
-        build_smh(2, s, 1, g, 65, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
+    SMH64(SMH_WORKLOAD & workload) {
+        build_smh(2, s, 1, g, 65, ids, workload, PREFIX, LOOSE_FIT);
     }
 
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
@@ -263,9 +262,8 @@ class SMH128 {
     GPR_SMH_PART g[2];
     u32 ids[129];
 public:
-    SMH128(std::vector<std::string> & strings,
-           std::vector<u32> & orig_ids) {
-        build_smh(4, s, 2, g, 129, ids, strings, orig_ids, PREFIX, LOOSE_FIT);
+    SMH128(SMH_WORKLOAD & workload) {
+        build_smh(4, s, 2, g, 129, ids, workload, PREFIX, LOOSE_FIT);
     }
 
     really_inline u32 match(const u8 * buf, UNUSED const size_t len) {
